@@ -1,6 +1,7 @@
 services:
   jenkins:
     build:
+      context: .
       dockerfile: Dockerfile
     container_name: jenkins
     user: root  # Required on Docker Desktop to access the mapped docker.sock
