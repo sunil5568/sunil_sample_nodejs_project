@@ -4,29 +4,21 @@ pipeline {
     environment {
         DOCKER_IMAGE = "sunil2211/k8s-demo"
         TAG = "v1.${BUILD_NUMBER}"
+        // Add the current workspace to the PATH so Jenkins can find the 'kind' binary we download
+        PATH = "${WORKSPACE}:$PATH"
     }
 
     stages {
-
         stage('Clone Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/sunil5568/sunil_sample_nodejs_project'
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build & Push Docker Image') {
             steps {
                 sh "docker build -t $DOCKER_IMAGE:$TAG ."
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker-hub-creds',
-                    usernameVariable: 'USER',
-                    passwordVariable: 'PASS'
-                )]) {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
                     echo $PASS | docker login -u $USER --password-stdin
                     docker push $DOCKER_IMAGE:$TAG
@@ -35,12 +27,47 @@ pipeline {
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Setup Kind') {
             steps {
-                sh """
-                kubectl set image deployment/k8s-demo \
-                k8s-demo=$DOCKER_IMAGE:$TAG
-                """
+                sh '''
+                echo "--- CLEANING PREVIOUS FAILED DOWNLOADS ---"
+                rm -f ./kind
+                
+                echo "--- DOWNLOADING THE CORRECT BINARY ---"
+                # Use this EXACT URL. Do not use k8s.io.
+                [ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+                
+                echo "--- SETTING PERMISSIONS ---"
+                chmod +x ./kind
+
+                echo "--- TESTING VERSION ---"
+                ./kind version
+                '''
+            }
+        }
+
+        stage('Deploy to Kind') {
+            steps {
+                sh '''
+                echo "--- Get cluster name ---"
+                ./kind get clusters
+                # Use ./kind to ensure we use the binary we just downloaded
+                ./kind load docker-image $DOCKER_IMAGE:$TAG --name=k8s-demo
+                '''
+            }
+        }
+        
+        stage('Deploy to K8S') {
+            steps { 
+                withKubeConfig([credentialsId: 'my-kubeconfig']) {
+                sh '''       
+                # Check if kubectl is available, then update deployment
+                kubectl get nodes
+                kubectl set image deployment/k8s-demo k8s-demo=$DOCKER_IMAGE:$TAG
+                kubectl rollout status deployment/k8s-demo
+                kubectl port-forward service/k8s-demo-service 8000:80
+                '''
+                }    
             }
         }
     }
