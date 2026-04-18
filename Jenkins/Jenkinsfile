@@ -65,7 +65,6 @@ pipeline {
                 kubectl get nodes
                 kubectl set image deployment/k8s-demo k8s-demo=$DOCKER_IMAGE:$TAG
                 kubectl rollout status deployment/k8s-demo
-                kubectl port-forward service/k8s-demo-service 8000:80
                 '''
                 }    
             }
